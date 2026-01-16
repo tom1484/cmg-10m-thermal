@@ -14,6 +14,7 @@
 #include "commands/get.h"
 #include "common.h"
 #include "utils.h"
+#include "signals.h"
 
 #include "cJSON.h"
 
@@ -525,8 +526,11 @@ static int stream_channels(ThermalSource *sources, int source_count,
         }
     }
     
+    /* Install signal handlers for graceful shutdown */
+    signals_install_handlers();
+    
     /* Stream only dynamic data */
-    while (1) {
+    while (g_running) {
         ThermoData *data_array = (ThermoData*)calloc(source_count, sizeof(ThermoData));
         if (!data_array) {
             fprintf(stderr, "Error: Failed to allocate memory\n");

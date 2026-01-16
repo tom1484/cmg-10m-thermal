@@ -23,6 +23,7 @@ SOURCES = src/main.c \
           src/common.c \
           src/bridge.c \
           src/utils.c \
+          src/signals.c \
           vendor/cJSON.c
 
 OBJECTS = $(SOURCES:.c=.o)

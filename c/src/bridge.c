@@ -16,6 +16,7 @@
 #include "bridge.h"
 #include "hardware.h"
 #include "common.h"
+#include "signals.h"
 
 #include "cJSON.h"
 
@@ -262,9 +263,12 @@ int bridge_run(FuseBridge *bridge) {
             return 1;
         }
         
+        /* Install signal handlers for graceful shutdown */
+        signals_install_handlers();
+        
         char line[4096];
         
-        while (fgets(line, sizeof(line), fp)) {
+        while (g_running && fgets(line, sizeof(line), fp)) {
             /* Remove trailing newline */
             size_t len = strlen(line);
             if (len > 0 && line[len - 1] == '\n') {

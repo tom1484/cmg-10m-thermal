@@ -25,6 +25,126 @@ void thermo_data_init(ThermoData *data, int address, int channel) {
     data->channel = channel;
 }
 
+/* ============================================================================
+ * NEW API using ChannelReading and BoardInfo (Phase 3)
+ * ============================================================================ */
+
+/* Collect dynamic readings from a channel (board must be open, TC type set) */
+int channel_reading_collect(ChannelReading *reading, uint8_t address, uint8_t channel,
+                           int get_temp, int get_adc, int get_cjc) {
+    channel_reading_init(reading, address, channel);
+    
+    if (get_temp) {
+        if (thermo_read_temp(address, channel, &reading->temperature) == THERMO_SUCCESS) {
+            reading->has_temp = 1;
+        }
+    }
+    
+    if (get_adc) {
+        if (thermo_read_adc(address, channel, &reading->adc_voltage) == THERMO_SUCCESS) {
+            reading->has_adc = 1;
+        }
+    }
+    
+    if (get_cjc) {
+        if (thermo_read_cjc(address, channel, &reading->cjc_temp) == THERMO_SUCCESS) {
+            reading->has_cjc = 1;
+        }
+    }
+    
+    return THERMO_SUCCESS;
+}
+
+/* Collect board info (board must be open) */
+int board_info_collect(BoardInfo *info, uint8_t address, uint8_t channel,
+                      int get_serial, int get_cal_date, int get_cal_coeffs, int get_interval) {
+    /* Initialize only if address doesn't match (allows accumulating data for multiple channels) */
+    if (info->address != address) {
+        board_info_init(info, address);
+    }
+    
+    if (get_serial && info->serial[0] == '\0') {
+        thermo_get_serial(address, info->serial, sizeof(info->serial));
+    }
+    
+    if (get_interval) {
+        thermo_get_update_interval(address, &info->update_interval);
+    }
+    
+    if (channel < MCC134_NUM_CHANNELS) {
+        if (get_cal_date) {
+            thermo_get_calibration_date(address, info->channels[channel].cal_date,
+                                       sizeof(info->channels[channel].cal_date));
+        }
+        
+        if (get_cal_coeffs) {
+            thermo_get_calibration_coeffs(address, channel, &info->channels[channel].cal_coeffs);
+        }
+    }
+    
+    return THERMO_SUCCESS;
+}
+
+/* Output ChannelReading as JSON */
+void channel_reading_output_json(const ChannelReading *reading, const char *key) {
+    cJSON *root = cJSON_CreateObject();
+    
+    if (key && key[0] != '\0') {
+        cJSON_AddStringToObject(root, "KEY", key);
+    }
+    cJSON_AddNumberToObject(root, "ADDRESS", reading->address);
+    cJSON_AddNumberToObject(root, "CHANNEL", reading->channel);
+    
+    if (reading->has_temp) {
+        cJSON_AddNumberToObject(root, "TEMPERATURE", reading->temperature);
+    }
+    if (reading->has_adc) {
+        cJSON_AddNumberToObject(root, "ADC", reading->adc_voltage);
+    }
+    if (reading->has_cjc) {
+        cJSON_AddNumberToObject(root, "CJC", reading->cjc_temp);
+    }
+    
+    char *json_str = cJSON_PrintUnformatted(root);
+    printf("%s\n", json_str);
+    fflush(stdout);
+    free(json_str);
+    cJSON_Delete(root);
+}
+
+/* Output BoardInfo as JSON */
+void board_info_output_json(const BoardInfo *info, uint8_t channel) {
+    cJSON *root = cJSON_CreateObject();
+    
+    cJSON_AddNumberToObject(root, "ADDRESS", info->address);
+    
+    if (info->serial[0] != '\0') {
+        cJSON_AddStringToObject(root, "SERIAL", info->serial);
+    }
+    
+    cJSON_AddNumberToObject(root, "UPDATE_INTERVAL", info->update_interval);
+    
+    if (channel < MCC134_NUM_CHANNELS) {
+        cJSON *cal = cJSON_AddObjectToObject(root, "CALIBRATION");
+        cJSON_AddNumberToObject(cal, "CHANNEL", channel);
+        if (info->channels[channel].cal_date[0] != '\0') {
+            cJSON_AddStringToObject(cal, "DATE", info->channels[channel].cal_date);
+        }
+        cJSON_AddNumberToObject(cal, "SLOPE", info->channels[channel].cal_coeffs.slope);
+        cJSON_AddNumberToObject(cal, "OFFSET", info->channels[channel].cal_coeffs.offset);
+    }
+    
+    char *json_str = cJSON_PrintUnformatted(root);
+    printf("%s\n", json_str);
+    fflush(stdout);
+    free(json_str);
+    cJSON_Delete(root);
+}
+
+/* ============================================================================
+ * LEGACY API using ThermoData (maintained for backward compatibility)
+ * ============================================================================ */
+
 /* Collect data from the board based on requested flags */
 int thermo_data_collect(ThermoData *data, int get_serial, int get_cal_date, 
                         int get_cal_coeffs, int get_temp, int get_adc, 
@@ -157,7 +277,12 @@ void thermo_data_output_table(const ThermoData *data, int show_header, int clean
 
 /* Split ThermoData into static and dynamic parts */
 void thermo_data_split(const ThermoData *data, ThermoData *static_data, ThermoData *dynamic_data) {
-    /* Static data */
+    /* Extract dynamic data using ChannelReading as intermediate */
+    ChannelReading reading;
+    thermo_data_to_reading(data, &reading);
+    reading_to_thermo_data(&reading, dynamic_data);
+    
+    /* Static data - copy everything except dynamic fields */
     thermo_data_init(static_data, data->address, data->channel);
     static_data->has_serial = data->has_serial;
     if (data->has_serial) {
@@ -174,21 +299,6 @@ void thermo_data_split(const ThermoData *data, ThermoData *static_data, ThermoDa
     static_data->has_interval = data->has_interval;
     if (data->has_interval) {
         static_data->update_interval = data->update_interval;
-    }
-    
-    /* Dynamic data */
-    thermo_data_init(dynamic_data, data->address, data->channel);
-    dynamic_data->has_temp = data->has_temp;
-    if (data->has_temp) {
-        dynamic_data->temperature = data->temperature;
-    }
-    dynamic_data->has_adc = data->has_adc;
-    if (data->has_adc) {
-        dynamic_data->adc_voltage = data->adc_voltage;
-    }
-    dynamic_data->has_cjc = data->has_cjc;
-    if (data->has_cjc) {
-        dynamic_data->cjc_temp = data->cjc_temp;
     }
 }
 

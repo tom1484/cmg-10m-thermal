@@ -2,8 +2,16 @@
 # MCC 134 Thermocouple Interface and Data Fuser
 
 CC = gcc
-CFLAGS = -Wall -Wextra -O2 -I./include -I./vendor
+CFLAGS = -Wall -Wextra -I./include -I./vendor
 LDFLAGS = -ldaqhats -lyaml -lm
+
+# Debug mode: make DEBUG=1
+ifeq ($(DEBUG),1)
+    CFLAGS += -g -DDEBUG -O0
+    $(info Building in DEBUG mode)
+else
+    CFLAGS += -O2
+endif
 
 # Source files
 SOURCES = src/main.c \
@@ -70,8 +78,12 @@ help:
 	@echo "  test-compile  Test compilation without linking"
 	@echo "  help          Show this help message"
 	@echo ""
+	@echo "Build options:"
+	@echo "  DEBUG=1       Build with debug symbols and enable DEBUG_PRINT"
+	@echo ""
 	@echo "Usage examples:"
-	@echo "  make                # Build the project"
+	@echo "  make                # Build the project (release)"
+	@echo "  make DEBUG=1        # Build with debug mode"
 	@echo "  make clean          # Clean build files"
 	@echo "  sudo make install   # Install to system"
 

@@ -59,6 +59,9 @@ static int load_json_config(const char *path, Config *config) {
         cJSON *addr_item = cJSON_GetObjectItem(src, "address");
         cJSON *chan_item = cJSON_GetObjectItem(src, "channel");
         cJSON *tc_type_item = cJSON_GetObjectItem(src, "tc_type");
+        cJSON *cal_slope_item = cJSON_GetObjectItem(src, "cal_slope");
+        cJSON *cal_offset_item = cJSON_GetObjectItem(src, "cal_offset");
+        cJSON *update_interval_item = cJSON_GetObjectItem(src, "update_interval");
 
         if (!addr_item || !chan_item) {
             fprintf(stderr, "Warning: Source %d missing required fields (address/channel), skipping\n", i);
@@ -82,6 +85,26 @@ static int load_json_config(const char *path, Config *config) {
             strncpy(ts->tc_type, tc_type_item->valuestring, sizeof(ts->tc_type) - 1);
         } else {
             strncpy(ts->tc_type, "K", sizeof(ts->tc_type) - 1);
+        }
+        
+        /* Parse calibration coefficients with defaults */
+        if (cal_slope_item && cJSON_IsNumber(cal_slope_item)) {
+            ts->cal_coeffs.slope = cal_slope_item->valuedouble;
+        } else {
+            ts->cal_coeffs.slope = DAFAULT_CALIBRATION_SLOPE;
+        }
+        
+        if (cal_offset_item && cJSON_IsNumber(cal_offset_item)) {
+            ts->cal_coeffs.offset = cal_offset_item->valuedouble;
+        } else {
+            ts->cal_coeffs.offset = DAFAULT_CALIBRATION_OFFSET;
+        }
+        
+        /* Parse update interval with default */
+        if (update_interval_item && cJSON_IsNumber(update_interval_item)) {
+            ts->update_interval = update_interval_item->valueint;
+        } else {
+            ts->update_interval = DAFAULT_UPDATE_INTERVAL;
         }
 
         config->source_count++;
@@ -121,6 +144,11 @@ static int load_yaml_config(const char *path, Config *config) {
     ThermalSource current_source = {0};
     char current_key[64] = {0};
     int expecting_value = 0;
+    
+    /* Initialize defaults for current source */
+    current_source.cal_coeffs.slope = DAFAULT_CALIBRATION_SLOPE;
+    current_source.cal_coeffs.offset = DAFAULT_CALIBRATION_OFFSET;
+    current_source.update_interval = DAFAULT_UPDATE_INTERVAL;
 
     int done = 0;
     while (!done) {
@@ -149,6 +177,12 @@ static int load_yaml_config(const char *path, Config *config) {
                         current_source.channel = (uint8_t)atoi((char*)event.data.scalar.value);
                     } else if (strcmp(current_key, "tc_type") == 0) {
                         strncpy(current_source.tc_type, (char*)event.data.scalar.value, sizeof(current_source.tc_type) - 1);
+                    } else if (strcmp(current_key, "cal_slope") == 0) {
+                        current_source.cal_coeffs.slope = atof((char*)event.data.scalar.value);
+                    } else if (strcmp(current_key, "cal_offset") == 0) {
+                        current_source.cal_coeffs.offset = atof((char*)event.data.scalar.value);
+                    } else if (strcmp(current_key, "update_interval") == 0) {
+                        current_source.update_interval = atoi((char*)event.data.scalar.value);
                     }
                     current_key[0] = '\0';
                     expecting_value = 0;
@@ -165,6 +199,10 @@ static int load_yaml_config(const char *path, Config *config) {
                 if (in_sources) {
                     in_source_item = 1;
                     memset(&current_source, 0, sizeof(current_source));
+                    /* Initialize defaults for new source */
+                    current_source.cal_coeffs.slope = DAFAULT_CALIBRATION_SLOPE;
+                    current_source.cal_coeffs.offset = DAFAULT_CALIBRATION_OFFSET;
+                    current_source.update_interval = DAFAULT_UPDATE_INTERVAL;
                     expecting_value = 0;
                 }
                 break;
@@ -259,19 +297,28 @@ int config_create_example(const char *output_path) {
         fprintf(fp, "      \"key\": \"BATTERY_TEMP\",\n");
         fprintf(fp, "      \"address\": 0,\n");
         fprintf(fp, "      \"channel\": 0,\n");
-        fprintf(fp, "      \"tc_type\": \"K\"\n");
+        fprintf(fp, "      \"tc_type\": \"K\",\n");
+        fprintf(fp, "      \"cal_slope\": 1.0,\n");
+        fprintf(fp, "      \"cal_offset\": 0.0,\n");
+        fprintf(fp, "      \"update_interval\": 1\n");
         fprintf(fp, "    },\n");
         fprintf(fp, "    {\n");
         fprintf(fp, "      \"key\": \"MOTOR_TEMP\",\n");
         fprintf(fp, "      \"address\": 0,\n");
         fprintf(fp, "      \"channel\": 1,\n");
-        fprintf(fp, "      \"tc_type\": \"K\"\n");
+        fprintf(fp, "      \"tc_type\": \"K\",\n");
+        fprintf(fp, "      \"cal_slope\": 1.0,\n");
+        fprintf(fp, "      \"cal_offset\": 0.0,\n");
+        fprintf(fp, "      \"update_interval\": 1\n");
         fprintf(fp, "    },\n");
         fprintf(fp, "    {\n");
         fprintf(fp, "      \"key\": \"AMBIENT_TEMP\",\n");
         fprintf(fp, "      \"address\": 0,\n");
         fprintf(fp, "      \"channel\": 2,\n");
-        fprintf(fp, "      \"tc_type\": \"K\"\n");
+        fprintf(fp, "      \"tc_type\": \"K\",\n");
+        fprintf(fp, "      \"cal_slope\": 1.0,\n");
+        fprintf(fp, "      \"cal_offset\": 0.0,\n");
+        fprintf(fp, "      \"update_interval\": 1\n");
         fprintf(fp, "    }\n");
         fprintf(fp, "  ]\n");
         fprintf(fp, "}\n");
@@ -282,14 +329,23 @@ int config_create_example(const char *output_path) {
         fprintf(fp, "  address: 0\n");
         fprintf(fp, "  channel: 0\n");
         fprintf(fp, "  tc_type: K\n");
+        fprintf(fp, "  cal_slope: 1.0\n");
+        fprintf(fp, "  cal_offset: 0.0\n");
+        fprintf(fp, "  update_interval: 1\n");
         fprintf(fp, "- key: MOTOR_TEMP\n");
         fprintf(fp, "  address: 0\n");
         fprintf(fp, "  channel: 1\n");
         fprintf(fp, "  tc_type: K\n");
+        fprintf(fp, "  cal_slope: 1.0\n");
+        fprintf(fp, "  cal_offset: 0.0\n");
+        fprintf(fp, "  update_interval: 1\n");
         fprintf(fp, "- key: AMBIENT_TEMP\n");
         fprintf(fp, "  address: 0\n");
         fprintf(fp, "  channel: 2\n");
         fprintf(fp, "  tc_type: K\n");
+        fprintf(fp, "  cal_slope: 1.0\n");
+        fprintf(fp, "  cal_offset: 0.0\n");
+        fprintf(fp, "  update_interval: 1\n");
     }
 
     fclose(fp);

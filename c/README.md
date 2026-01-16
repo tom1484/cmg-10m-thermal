@@ -118,6 +118,9 @@ sources:
     address: 0
     channel: 0
     tc_type: K
+    cal_slope: 1.0      # Optional: calibration slope (default: 1.0)
+    cal_offset: 0.0     # Optional: calibration offset (default: 0.0)
+    update_interval: 1  # Optional: update interval in seconds (default: 1)
   - key: BATTERY_TEMP
     address: 0
     channel: 1
@@ -127,6 +130,8 @@ sources:
     channel: 0
     tc_type: T
 ```
+
+**Note:** Calibration coefficients and update interval specified in config files are applied once when the board is opened, providing persistent settings during the reading session.
 
 Example multi-channel JSON output:
 ```json
@@ -353,6 +358,8 @@ thermo-cli get -C sensors.yaml --temp --stream 5 --json
 #### `set`
 Configure channel parameters.
 
+**Note:** Settings applied via the `set` command are temporary and only last while the board is open. For persistent configuration across readings, use config files with `cal_slope`, `cal_offset`, and `update_interval` fields.
+
 **Options:**
 - `-a, --address NUM` - Board address (0-7) [default: 0]
 - `-c, --channel NUM` - Channel index (0-3) [default: 0]
@@ -422,8 +429,11 @@ cmg-10m-thermal-c/
 ### Build Commands
 
 ```bash
-# Build project
+# Build project (release mode)
 make
+
+# Build with debug symbols and profiling
+make DEBUG=1
 
 # Clean build artifacts
 make clean
@@ -439,6 +449,28 @@ make test-compile
 
 # Show help
 make help
+```
+
+### Debug Mode
+
+When compiled with `DEBUG=1`, the following features are enabled:
+
+- **Debug symbols** - Include `-g` flag for debugging with gdb
+- **Debug prints** - `DEBUG_PRINT()` macro outputs to stderr
+- **Performance profiling** - `PROFILE_SCOPE()` macro measures execution time
+
+```bash
+# Build in debug mode
+make clean && make DEBUG=1
+
+# Run and see debug output
+./thermo-cli get --temp
+```
+
+Example debug output:
+```
+[DEBUG] get.c:245:collect_channels(): Opening board at address 0
+[PROFILE] get.c:231 'collect_channels' took 45.123 ms
 ```
 
 ## Troubleshooting

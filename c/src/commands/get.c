@@ -27,7 +27,7 @@ void thermo_data_init(ThermoData *data, int address, int channel) {
 /* Collect data from the board based on requested flags */
 int thermo_data_collect(ThermoData *data, int get_serial, int get_cal_date, 
                         int get_cal_coeffs, int get_temp, int get_adc, 
-                        int get_cjc, int get_interval, const char *tc_type) {
+                        int get_cjc, int get_interval, const ThermalSource *source) {
     int address = data->address;
     int channel = data->channel;
     
@@ -61,11 +61,9 @@ int thermo_data_collect(ThermoData *data, int get_serial, int get_cal_date,
     
     /* Set TC type if we're reading temp or ADC */
     if (get_temp || get_adc) {
-        if (thermo_set_tc_type(address, channel, tc_type) != THERMO_SUCCESS) {
+        if (thermo_set_tc_type(address, channel, source->tc_type) != THERMO_SUCCESS) {
             return THERMO_ERROR;
         }
-        /* Wait for readings to stabilize after setting TC type */
-        thermo_wait_for_readings();
     }
     
     /* Get temperature */
@@ -142,10 +140,10 @@ void thermo_data_output_json(const ThermoData *data, int include_address_channel
 /* Output data in human-readable format */
 void thermo_data_output_table(const ThermoData *data, int show_header, int clean_mode) {
     if (show_header) {
-        printf("Address: %d, Channel: %d\n", data->address, data->channel);
-        if (!clean_mode) {
-            printf("----------------------------------------\n");
-        }
+        printf("(Address: %d, Channel: %d):\n", data->address, data->channel);
+        // if (!clean_mode) {
+        //     printf("----------------------------------------\n");
+        // }
     }
     
     /* Calculate value width for alignment */
@@ -207,7 +205,7 @@ static int collect_channels(ThermalSource *sources, int source_count, ThermoData
         return THERMO_ERROR;
     }
     
-    /* Open all unique boards */
+    /* Open all unique boards and configure update intervals */
     for (int i = 0; i < source_count; i++) {
         uint8_t addr = sources[i].address;
         if (!opened[addr]) {
@@ -221,19 +219,47 @@ static int collect_channels(ThermalSource *sources, int source_count, ThermoData
                 return THERMO_ERROR;
             }
             opened[addr] = 1;
+            
+            /* Apply update interval if it differs from default */
+            if (sources[i].update_interval > 0 && sources[i].update_interval != DAFAULT_UPDATE_INTERVAL) {
+                DEBUG_PRINT("Setting update interval for address %d to %d", addr, sources[i].update_interval);
+                if (thermo_set_update_interval(addr, (uint8_t)sources[i].update_interval) != THERMO_SUCCESS) {
+                    fprintf(stderr, "Warning: Failed to set update interval for address %d\n", addr);
+                }
+            }
         }
     }
+    
+    /* Configure calibration coefficients for each channel */
+    for (int i = 0; i < source_count; i++) {
+        if (sources[i].cal_coeffs.slope != DAFAULT_CALIBRATION_SLOPE || 
+            sources[i].cal_coeffs.offset != DAFAULT_CALIBRATION_OFFSET) {
+            DEBUG_PRINT("Setting calibration coeffs for address %d, channel %d: slope=%.6f, offset=%.6f",
+                        sources[i].address, sources[i].channel,
+                        sources[i].cal_coeffs.slope, sources[i].cal_coeffs.offset);
+            if (thermo_set_calibration_coeffs(sources[i].address, sources[i].channel, 
+                                             sources[i].cal_coeffs.slope, 
+                                             sources[i].cal_coeffs.offset) != THERMO_SUCCESS) {
+                fprintf(stderr, "Warning: Failed to set calibration coefficients for address %d, channel %d\n",
+                        sources[i].address, sources[i].channel);
+            }
+        }
+    }
+    
+    DEBUG_PRINT("Beginning data collection for %d sources", source_count);
     
     /* Collect data from each source */
     for (int i = 0; i < source_count; i++) {
         thermo_data_init(&data_array[i], sources[i].address, sources[i].channel);
+        DEBUG_PRINT("ThermoData initialized for address %d, channel %d", sources[i].address, sources[i].channel);
         
         if (thermo_data_collect(&data_array[i], get_serial, get_cal_date, get_cal_coeffs,
                                get_temp, get_adc, get_cjc, get_interval, 
-                               sources[i].tc_type) != THERMO_SUCCESS) {
+                               &sources[i]) != THERMO_SUCCESS) {
             fprintf(stderr, "Warning: Failed to collect data from address %d, channel %d\n",
                     sources[i].address, sources[i].channel);
         }
+        DEBUG_PRINT("Data collected for address %d, channel %d", sources[i].address, sources[i].channel);
     }
     
     *data_out = data_array;
@@ -367,10 +393,10 @@ static void output_channels_table(ThermoData *data_array, int count, ThermalSour
         thermo_data_output_table(&data_array[0], 1, clean_mode);
     } else {
         /* Multiple channels */
-        if (!clean_mode) {
-            printf("Reading from %d source%s...\n", count, count == 1 ? "" : "s");
-            printf("========================================\n");
-        }
+        // if (!clean_mode) {
+        //     printf("Reading from %d source%s...\n", count, count == 1 ? "" : "s");
+        //     printf("========================================\n");
+        // }
         
         /* Calculate max key length for alignment */
         int max_key_len = 0;
@@ -424,7 +450,7 @@ static int stream_channels(ThermalSource *sources, int source_count,
     /* Track which boards are already open */
     uint8_t opened[8] = {0};
     
-    /* Open all unique boards */
+    /* Open all unique boards and configure settings */
     for (int i = 0; i < source_count; i++) {
         uint8_t addr = sources[i].address;
         if (!opened[addr]) {
@@ -437,6 +463,26 @@ static int stream_channels(ThermalSource *sources, int source_count,
                 return 1;
             }
             opened[addr] = 1;
+            
+            /* Apply update interval if it differs from default */
+            if (sources[i].update_interval > 0 && sources[i].update_interval != DAFAULT_UPDATE_INTERVAL) {
+                if (thermo_set_update_interval(addr, (uint8_t)sources[i].update_interval) != THERMO_SUCCESS) {
+                    fprintf(stderr, "Warning: Failed to set update interval for address %d\n", addr);
+                }
+            }
+        }
+    }
+    
+    /* Configure calibration coefficients for each channel */
+    for (int i = 0; i < source_count; i++) {
+        if (sources[i].cal_coeffs.slope != DAFAULT_CALIBRATION_SLOPE || 
+            sources[i].cal_coeffs.offset != DAFAULT_CALIBRATION_OFFSET) {
+            if (thermo_set_calibration_coeffs(sources[i].address, sources[i].channel, 
+                                             sources[i].cal_coeffs.slope, 
+                                             sources[i].cal_coeffs.offset) != THERMO_SUCCESS) {
+                fprintf(stderr, "Warning: Failed to set calibration coefficients for address %d, channel %d\n",
+                        sources[i].address, sources[i].channel);
+            }
         }
     }
     
@@ -491,7 +537,7 @@ static int stream_channels(ThermalSource *sources, int source_count,
             
             if (thermo_data_collect(&data_array[i], 0, 0, 0,
                                    get_temp, get_adc, get_cjc, 0,
-                                   sources[i].tc_type) != THERMO_SUCCESS) {
+                                   &sources[i]) != THERMO_SUCCESS) {
                 fprintf(stderr, "Warning: Failed to collect data from address %d, channel %d\n",
                         sources[i].address, sources[i].channel);
             }
@@ -651,10 +697,16 @@ int cmd_get(int argc, char **argv) {
         single_source.address = address;
         single_source.channel = channel;
         strncpy(single_source.tc_type, tc_type, sizeof(single_source.tc_type) - 1);
+        /* Initialize with default calibration and update interval */
+        single_source.cal_coeffs.slope = DAFAULT_CALIBRATION_SLOPE;
+        single_source.cal_coeffs.offset = DAFAULT_CALIBRATION_OFFSET;
+        single_source.update_interval = DAFAULT_UPDATE_INTERVAL;
         
         sources = &single_source;
         source_count = 1;
     }
+    
+    DEBUG_PRINT("Setup complete.");
     
     /* Execute unified path for both single and multi-channel */
     int result = 0;
@@ -671,6 +723,7 @@ int cmd_get(int argc, char **argv) {
         if (collect_channels(sources, source_count, &data_array,
                            get_serial, get_cal_date, get_cal_coeffs,
                            get_temp, get_adc, get_cjc, get_interval) == THERMO_SUCCESS) {
+            DEBUG_PRINT("Data collection complete.");
             if (json_output) {
                 output_channels_json(data_array, source_count, sources);
             } else {

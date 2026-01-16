@@ -11,6 +11,50 @@
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define MAX(a,b) (((a)>(b))?(a):(b))
 
+/* Debug printing macro */
+#ifdef DEBUG
+#define DEBUG_PRINT(fmt, ...) \
+    fprintf(stderr, "[DEBUG] %s:%d:%s(): " fmt "\n", \
+            __FILE__, __LINE__, __func__, ##__VA_ARGS__)
+#else
+#define DEBUG_PRINT(fmt, ...) do {} while(0)
+#endif
+
+/* Scope profiler for performance measurement */
+#ifdef DEBUG
+#include <time.h>
+
+typedef struct {
+    struct timespec start;
+    const char *scope_name;
+    const char *file;
+    int line;
+} ScopeTimer;
+
+void __scope_timer_cleanup(ScopeTimer *timer);
+
+/* PROFILE_SCOPE(name) - Profile execution time of a scope
+ * Usage:
+ *   void my_function() {
+ *       PROFILE_SCOPE("my_function");
+ *       // ... code to profile ...
+ *   }  // Automatically prints elapsed time when scope exits
+ *
+ * Only active when compiled with DEBUG=1
+ */
+#define PROFILE_SCOPE(name) \
+    ScopeTimer __scope_timer_##__LINE__ \
+    __attribute__((cleanup(__scope_timer_cleanup))) = { \
+        .scope_name = name, \
+        .file = __FILE__, \
+        .line = __LINE__ \
+    }; \
+    clock_gettime(CLOCK_MONOTONIC, &__scope_timer_##__LINE__.start)
+
+#else
+#define PROFILE_SCOPE(name) do {} while(0)
+#endif
+
 /* Data formatting structure */
 typedef struct {
     const char *key;

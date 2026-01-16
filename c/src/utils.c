@@ -7,6 +7,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <math.h>
+#include <time.h>
 
 #include "utils.h"
 #include "hardware.h"
@@ -21,6 +22,20 @@
 #define COLOR_BLUE    "\033[1;34m"
 #define COLOR_MAGENTA "\033[1;35m"
 #define COLOR_CYAN    "\033[1;36m"
+
+#ifdef DEBUG
+/* Scope profiler cleanup function */
+void __scope_timer_cleanup(ScopeTimer *timer) {
+    struct timespec end;
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    
+    double elapsed_ms = (end.tv_sec - timer->start.tv_sec) * 1000.0 +
+                        (end.tv_nsec - timer->start.tv_nsec) / 1000000.0;
+    
+    fprintf(stderr, "[PROFILE] %s:%d '%s' took %.3f ms\n",
+            timer->file, timer->line, timer->scope_name, elapsed_ms);
+}
+#endif
 
 /* Data format definitions */
 const DataFormat DATA_FORMATS[5] = {

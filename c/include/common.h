@@ -9,12 +9,19 @@
 #include <stdint.h>
 #include "hardware.h"
 
+
+#define DAFAULT_CALIBRATION_SLOPE 0.999560
+#define DAFAULT_CALIBRATION_OFFSET -38.955465
+#define DAFAULT_UPDATE_INTERVAL 1  /* seconds */
+
 /* Thermal source configuration */
 typedef struct {
     char key[64];
     uint8_t address;
     uint8_t channel;
     char tc_type[8];
+    CalibrationInfo cal_coeffs;
+    int update_interval;
 } ThermalSource;
 
 /* Configuration structure */

@@ -137,17 +137,21 @@ def install_dependencies(host: str, password: str, remote_path: str) -> None:
         print("[INFO] daqhats already installed")
 
 
-def build_on_remote(host: str, remote_path: str) -> None:
+def build_on_remote(host: str, remote_path: str, debug: bool = False) -> None:
     """Build the C project on the remote host."""
-    print("\n=== Building thermo-cli ===")
+    build_mode = "DEBUG" if debug else "RELEASE"
+    print(f"\n=== Building thermo-cli ({build_mode} mode) ===")
     
     # Clean previous build
     print("[INFO] Cleaning previous build...")
     run_ssh(host, f"cd {remote_path} && make clean", check=False)
     
     # Build project
-    print("[INFO] Building project...")
-    run_ssh(host, f"cd {remote_path} && make")
+    build_cmd = f"cd {remote_path} && make"
+    if debug:
+        build_cmd += " DEBUG=1"
+    print(f"[INFO] Building project with: {build_cmd}")
+    run_ssh(host, build_cmd)
 
 
 def install_on_remote(host: str, password: str, remote_path: str) -> None:
@@ -183,6 +187,7 @@ Examples:
     %(prog)s pi@192.168.1.100 --remote-path /opt/thermo-cli --password raspberry
     %(prog)s pi@192.168.1.100 --sync-only
     %(prog)s pi@192.168.1.100 --build-only --password raspberry
+    %(prog)s pi@192.168.1.100 --debug --password raspberry
         """,
     )
 
@@ -225,6 +230,11 @@ Examples:
         action="store_true",
         help="Update mode: skip dependency installation (faster for subsequent deployments)",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Build in debug mode (enables DEBUG_PRINT and debug symbols)",
+    )
 
     args = parser.parse_args()
 
@@ -262,7 +272,7 @@ Examples:
             install_dependencies(args.host, args.password, args.remote_path)
 
         # Build project
-        build_on_remote(args.host, args.remote_path)
+        build_on_remote(args.host, args.remote_path, args.debug)
 
         if args.build_only:
             print("\n=== Build complete (--build-only) ===")

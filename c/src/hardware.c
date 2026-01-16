@@ -15,6 +15,7 @@
 #include <daqhats/daqhats.h>
 
 #include "hardware.h"
+#include "utils.h"
 
 /* Convert string to TC type enum */
 uint8_t thermo_tc_type_from_string(const char *tc_type_str) {
@@ -139,7 +140,6 @@ int thermo_set_tc_type(uint8_t address, uint8_t channel, const char *tc_type_str
     int result = mcc134_tc_type_write(address, channel, tc_type);
     return (result == RESULT_SUCCESS) ? THERMO_SUCCESS : THERMO_ERROR;
 }
-
 /* Read temperature from channel (board must be open, tc_type must be set) */
 int thermo_read_temp(uint8_t address, uint8_t channel, double *value) {
     if (value == NULL || channel > 3) {

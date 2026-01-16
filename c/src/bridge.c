@@ -84,6 +84,24 @@ static int bridge_init_boards(FuseBridge *bridge) {
                 return -1;
             }
             opened[src->address] = 1;
+            
+            /* Apply update interval if it differs from default */
+            if (src->update_interval > 0 && src->update_interval != DAFAULT_UPDATE_INTERVAL) {
+                if (thermo_set_update_interval(src->address, (uint8_t)src->update_interval) != THERMO_SUCCESS) {
+                    fprintf(stderr, "Warning: Failed to set update interval for address %d\n", src->address);
+                }
+            }
+        }
+        
+        /* Apply calibration coefficients if they differ from defaults */
+        if (src->cal_coeffs.slope != DAFAULT_CALIBRATION_SLOPE || 
+            src->cal_coeffs.offset != DAFAULT_CALIBRATION_OFFSET) {
+            if (thermo_set_calibration_coeffs(src->address, src->channel, 
+                                             src->cal_coeffs.slope, 
+                                             src->cal_coeffs.offset) != THERMO_SUCCESS) {
+                fprintf(stderr, "Warning: Failed to set calibration coefficients for address %d, channel %d\n",
+                        src->address, src->channel);
+            }
         }
         
         /* Set thermocouple type for this channel */
@@ -366,6 +384,10 @@ int cmd_fuse(int argc, char **argv) {
         single_source.address = address;
         single_source.channel = channel;
         strncpy(single_source.tc_type, tc_type, sizeof(single_source.tc_type) - 1);
+        /* Initialize with default calibration and update interval */
+        single_source.cal_coeffs.slope = DAFAULT_CALIBRATION_SLOPE;
+        single_source.cal_coeffs.offset = DAFAULT_CALIBRATION_OFFSET;
+        single_source.update_interval = DAFAULT_UPDATE_INTERVAL;
         sources = &single_source;
         source_count = 1;
     } else {

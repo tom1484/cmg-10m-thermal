@@ -5,13 +5,22 @@ CC = gcc
 CFLAGS = -Wall -Wextra -I./include -I./vendor
 LDFLAGS = -ldaqhats -lyaml -lm
 
+# Dependency generation flags
+DEPFLAGS = -MMD -MP
+
 # Debug mode: make DEBUG=1
 ifeq ($(DEBUG),1)
     CFLAGS += -g -DDEBUG -O0
+    # Uncomment for memory debugging (requires libasan):
+    # CFLAGS += -fsanitize=address -fsanitize=undefined
+    # LDFLAGS += -fsanitize=address -fsanitize=undefined
     $(info Building in DEBUG mode)
 else
     CFLAGS += -O2
 endif
+
+# Add dependency flags to CFLAGS
+CFLAGS += $(DEPFLAGS)
 
 # Source files
 SOURCES = src/main.c \
@@ -27,6 +36,7 @@ SOURCES = src/main.c \
           vendor/cJSON.c
 
 OBJECTS = $(SOURCES:.c=.o)
+DEPS = $(OBJECTS:.o=.d)
 TARGET = thermo-cli
 
 # Build target
@@ -42,10 +52,13 @@ $(TARGET): $(OBJECTS)
 	@echo "Compiling $<..."
 	$(CC) $(CFLAGS) -c $< -o $@
 
+# Include generated dependency files
+-include $(DEPS)
+
 # Clean build artifacts
 clean:
 	@echo "Cleaning build artifacts..."
-	rm -f $(OBJECTS) $(TARGET)
+	rm -f $(OBJECTS) $(DEPS) $(TARGET)
 	@echo "Clean complete"
 
 # Install to system
@@ -65,7 +78,7 @@ test-compile:
 	@echo "Testing compilation..."
 	$(CC) $(CFLAGS) -c $(SOURCES)
 	@echo "Compilation test passed"
-	rm -f $(OBJECTS)
+	rm -f $(OBJECTS) $(DEPS)
 
 # Show help
 help:
@@ -81,6 +94,7 @@ help:
 	@echo ""
 	@echo "Build options:"
 	@echo "  DEBUG=1       Build with debug symbols and enable DEBUG_PRINT"
+	@echo "                (Optionally enable sanitizers by editing Makefile)"
 	@echo ""
 	@echo "Usage examples:"
 	@echo "  make                # Build the project (release)"

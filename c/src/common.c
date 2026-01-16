@@ -14,7 +14,7 @@
 #include "cJSON.h"
 
 /* ============================================================================
- * ADAPTER FUNCTIONS (for gradual migration)
+ * ADAPTER FUNCTIONS (for bridge.c compatibility)
  * ============================================================================ */
 
 /* Initialize a ChannelReading structure */
@@ -69,28 +69,6 @@ void reading_to_thermo_data(const ChannelReading *reading, ThermoData *data) {
     data->has_cal_date = 0;
     data->has_cal_coeffs = 0;
     data->has_interval = 0;
-}
-
-/* Extract BoardInfo from ThermoData (for a single channel) */
-void thermo_data_to_board_info(const ThermoData *data, BoardInfo *info, int channel) {
-    info->address = (uint8_t)data->address;
-    if (data->has_serial) {
-        strncpy(info->serial, data->serial, sizeof(info->serial) - 1);
-        info->serial[sizeof(info->serial) - 1] = '\0';
-    }
-    if (data->has_interval) {
-        info->update_interval = data->update_interval;
-    }
-    if (channel >= 0 && channel < MCC134_NUM_CHANNELS) {
-        if (data->has_cal_date) {
-            strncpy(info->channels[channel].cal_date, data->cal_date, 
-                    sizeof(info->channels[channel].cal_date) - 1);
-            info->channels[channel].cal_date[sizeof(info->channels[channel].cal_date) - 1] = '\0';
-        }
-        if (data->has_cal_coeffs) {
-            info->channels[channel].cal_coeffs = data->cal_coeffs;
-        }
-    }
 }
 
 /* ============================================================================

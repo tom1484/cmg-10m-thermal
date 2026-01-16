@@ -30,25 +30,19 @@ void board_info_add_to_json(cJSON *obj, const BoardInfo *info, int channel);
 cJSON* board_info_to_json(const BoardInfo *info, int channel);
 
 /* ============================================================================
- * ThermoData JSON functions (legacy compatibility)
+ * Combined JSON functions (ChannelReading + BoardInfo)
  * ============================================================================ */
 
-/* Add ThermoData fields to existing cJSON object */
-void thermo_data_add_to_json(cJSON *obj, const ThermoData *data);
+/* Convert ChannelReading + BoardInfo to combined JSON */
+cJSON* reading_with_info_to_json(const ChannelReading *reading,
+                                  const BoardInfo *info,
+                                  const char *key);
 
-/* Convert ThermoData to cJSON object */
-cJSON* thermo_data_to_json(const ThermoData *data, int include_address);
-
-/* Convert ThermoData with key to cJSON object */
-cJSON* thermo_data_to_json_with_key(const ThermoData *data, const char *key);
-
-/* ============================================================================
- * Array/batch JSON functions
- * ============================================================================ */
-
-/* Convert array of ThermoData to cJSON array */
-cJSON* thermo_data_array_to_json(const ThermoData *data_array, int count,
-                                  const ThermalSource *sources);
+/* Convert array of ChannelReadings to JSON array with BoardInfo */
+cJSON* readings_to_json_array(const ChannelReading *readings,
+                               const BoardInfo *infos,
+                               const ThermalSource *sources,
+                               int count);
 
 /* ============================================================================
  * Output utilities

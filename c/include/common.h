@@ -17,7 +17,7 @@
 #define MCC134_NUM_CHANNELS 4
 
 /* ============================================================================
- * NEW DATA STRUCTURES (Phase 3 refactoring)
+ * DATA STRUCTURES
  * These provide cleaner separation between static board info and dynamic readings.
  * ============================================================================ */
 
@@ -51,8 +51,7 @@ typedef struct {
 } ChannelReading;
 
 /* ============================================================================
- * EXISTING DATA STRUCTURES (maintained for backward compatibility)
- * Will be gradually migrated to use new structures internally.
+ * LEGACY DATA STRUCTURES (kept for bridge.c compatibility)
  * ============================================================================ */
 
 /* Thermal source configuration (from CLI args or config file) */
@@ -71,7 +70,7 @@ typedef struct {
     int source_count;
 } Config;
 
-/* Data structure for holding all readings (legacy, still widely used) */
+/* Legacy data structure for holding all readings (used by bridge.c) */
 typedef struct {
     int address;
     int channel;
@@ -96,7 +95,7 @@ typedef struct {
 } ThermoData;
 
 /* ============================================================================
- * ADAPTER FUNCTIONS (for gradual migration)
+ * ADAPTER FUNCTIONS (for bridge.c compatibility)
  * ============================================================================ */
 
 /* Initialize a ChannelReading structure */
@@ -110,9 +109,6 @@ void thermo_data_to_reading(const ThermoData *data, ChannelReading *reading);
 
 /* Convert ChannelReading back to ThermoData (for functions that still need ThermoData) */
 void reading_to_thermo_data(const ChannelReading *reading, ThermoData *data);
-
-/* Extract BoardInfo from ThermoData (for a single channel) */
-void thermo_data_to_board_info(const ThermoData *data, BoardInfo *info, int channel);
 
 /* ============================================================================
  * CONFIGURATION FUNCTIONS

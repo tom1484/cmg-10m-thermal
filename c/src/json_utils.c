@@ -80,85 +80,49 @@ cJSON* board_info_to_json(const BoardInfo *info, int channel) {
 }
 
 /* ============================================================================
- * ThermoData JSON functions (legacy compatibility)
+ * Combined JSON functions (ChannelReading + BoardInfo)
  * ============================================================================ */
 
-void thermo_data_add_to_json(cJSON *obj, const ThermoData *data) {
-    if (data->has_serial) {
-        cJSON_AddStringToObject(obj, "SERIAL", data->serial);
-    }
-    
-    if (data->has_cal_date || data->has_cal_coeffs) {
-        cJSON *cal = cJSON_AddObjectToObject(obj, "CALIBRATION");
-        if (data->has_cal_date) {
-            cJSON_AddStringToObject(cal, "DATE", data->cal_date);
-        }
-        if (data->has_cal_coeffs) {
-            cJSON_AddNumberToObject(cal, "SLOPE", data->cal_coeffs.slope);
-            cJSON_AddNumberToObject(cal, "OFFSET", data->cal_coeffs.offset);
-        }
-    }
-    
-    if (data->has_interval) {
-        cJSON_AddNumberToObject(obj, "UPDATE_INTERVAL", data->update_interval);
-    }
-    
-    if (data->has_temp) {
-        cJSON_AddNumberToObject(obj, "TEMPERATURE", data->temperature);
-    }
-    
-    if (data->has_adc) {
-        cJSON_AddNumberToObject(obj, "ADC", data->adc_voltage);
-    }
-    
-    if (data->has_cjc) {
-        cJSON_AddNumberToObject(obj, "CJC", data->cjc_temp);
-    }
-}
-
-cJSON* thermo_data_to_json(const ThermoData *data, int include_address) {
-    cJSON *obj = cJSON_CreateObject();
-    
-    if (include_address) {
-        cJSON_AddNumberToObject(obj, "ADDRESS", data->address);
-        cJSON_AddNumberToObject(obj, "CHANNEL", data->channel);
-    }
-    
-    thermo_data_add_to_json(obj, data);
-    return obj;
-}
-
-cJSON* thermo_data_to_json_with_key(const ThermoData *data, const char *key) {
+cJSON* reading_with_info_to_json(const ChannelReading *reading,
+                                  const BoardInfo *info,
+                                  const char *key) {
     cJSON *obj = cJSON_CreateObject();
     
     if (key && key[0] != '\0') {
         cJSON_AddStringToObject(obj, "KEY", key);
     }
     
-    cJSON_AddNumberToObject(obj, "ADDRESS", data->address);
-    cJSON_AddNumberToObject(obj, "CHANNEL", data->channel);
-    thermo_data_add_to_json(obj, data);
+    cJSON_AddNumberToObject(obj, "ADDRESS", reading->address);
+    cJSON_AddNumberToObject(obj, "CHANNEL", reading->channel);
+    
+    /* Add board info fields */
+    if (info) {
+        board_info_add_to_json(obj, info, reading->channel);
+    }
+    
+    /* Add reading fields */
+    reading_add_to_json(obj, reading);
     
     return obj;
 }
 
-/* ============================================================================
- * Array/batch JSON functions
- * ============================================================================ */
-
-cJSON* thermo_data_array_to_json(const ThermoData *data_array, int count,
-                                  const ThermalSource *sources) {
+cJSON* readings_to_json_array(const ChannelReading *readings,
+                               const BoardInfo *infos,
+                               const ThermalSource *sources,
+                               int count) {
     if (count == 1) {
         /* Single channel - output flat object */
         const char *key = (sources && sources[0].key[0] != '\0') ? sources[0].key : NULL;
-        return thermo_data_to_json_with_key(&data_array[0], key);
+        const BoardInfo *info = infos ? &infos[sources[0].address] : NULL;
+        return reading_with_info_to_json(&readings[0], info, key);
     }
     
     /* Multiple channels - output array */
     cJSON *arr = cJSON_CreateArray();
     for (int i = 0; i < count; i++) {
         const char *key = (sources && sources[i].key[0] != '\0') ? sources[i].key : NULL;
-        cJSON *item = thermo_data_to_json_with_key(&data_array[i], key);
+        const BoardInfo *info = infos ? &infos[sources[i].address] : NULL;
+        cJSON *item = reading_with_info_to_json(&readings[i], info, key);
         cJSON_AddItemToArray(arr, item);
     }
     return arr;

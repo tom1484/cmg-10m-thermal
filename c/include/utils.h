@@ -98,4 +98,13 @@ char* format_temperature(double temp);
 void print_colored(const char *color, const char *text);
 void print_with_color(const char *color_name, const char *format, ...);
 
+/* Input validation helpers */
+static inline int validate_address(int address) {
+    return (address >= 0 && address <= 7);
+}
+
+static inline int validate_channel(int channel) {
+    return (channel >= 0 && channel <= 3);
+}
+
 #endif /* UTILS_H */

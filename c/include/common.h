@@ -10,9 +10,9 @@
 #include "hardware.h"
 
 
-#define DAFAULT_CALIBRATION_SLOPE 0.999560
-#define DAFAULT_CALIBRATION_OFFSET -38.955465
-#define DAFAULT_UPDATE_INTERVAL 1  /* seconds */
+#define DEFAULT_CALIBRATION_SLOPE 0.999560
+#define DEFAULT_CALIBRATION_OFFSET -38.955465
+#define DEFAULT_UPDATE_INTERVAL 1  /* seconds */
 
 /* Thermal source configuration */
 typedef struct {

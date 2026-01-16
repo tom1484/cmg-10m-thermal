@@ -27,8 +27,13 @@ static int load_json_config(const char *path, Config *config) {
     fseek(fp, 0, SEEK_SET);
 
     char *content = (char*)malloc(fsize + 1);
-    fread(content, 1, fsize, fp);
+    size_t bytes_read = fread(content, 1, fsize, fp);
     fclose(fp);
+    if (bytes_read != (size_t)fsize) {
+        fprintf(stderr, "Error: Could not read entire config file\n");
+        free(content);
+        return THERMO_IO_ERROR;
+    }
     content[fsize] = '\0';
 
     /* Parse JSON */
@@ -91,20 +96,20 @@ static int load_json_config(const char *path, Config *config) {
         if (cal_slope_item && cJSON_IsNumber(cal_slope_item)) {
             ts->cal_coeffs.slope = cal_slope_item->valuedouble;
         } else {
-            ts->cal_coeffs.slope = DAFAULT_CALIBRATION_SLOPE;
+            ts->cal_coeffs.slope = DEFAULT_CALIBRATION_SLOPE;
         }
         
         if (cal_offset_item && cJSON_IsNumber(cal_offset_item)) {
             ts->cal_coeffs.offset = cal_offset_item->valuedouble;
         } else {
-            ts->cal_coeffs.offset = DAFAULT_CALIBRATION_OFFSET;
+            ts->cal_coeffs.offset = DEFAULT_CALIBRATION_OFFSET;
         }
         
         /* Parse update interval with default */
         if (update_interval_item && cJSON_IsNumber(update_interval_item)) {
             ts->update_interval = update_interval_item->valueint;
         } else {
-            ts->update_interval = DAFAULT_UPDATE_INTERVAL;
+            ts->update_interval = DEFAULT_UPDATE_INTERVAL;
         }
 
         config->source_count++;
@@ -146,9 +151,9 @@ static int load_yaml_config(const char *path, Config *config) {
     int expecting_value = 0;
     
     /* Initialize defaults for current source */
-    current_source.cal_coeffs.slope = DAFAULT_CALIBRATION_SLOPE;
-    current_source.cal_coeffs.offset = DAFAULT_CALIBRATION_OFFSET;
-    current_source.update_interval = DAFAULT_UPDATE_INTERVAL;
+    current_source.cal_coeffs.slope = DEFAULT_CALIBRATION_SLOPE;
+    current_source.cal_coeffs.offset = DEFAULT_CALIBRATION_OFFSET;
+    current_source.update_interval = DEFAULT_UPDATE_INTERVAL;
 
     int done = 0;
     while (!done) {
@@ -200,9 +205,9 @@ static int load_yaml_config(const char *path, Config *config) {
                     in_source_item = 1;
                     memset(&current_source, 0, sizeof(current_source));
                     /* Initialize defaults for new source */
-                    current_source.cal_coeffs.slope = DAFAULT_CALIBRATION_SLOPE;
-                    current_source.cal_coeffs.offset = DAFAULT_CALIBRATION_OFFSET;
-                    current_source.update_interval = DAFAULT_UPDATE_INTERVAL;
+                    current_source.cal_coeffs.slope = DEFAULT_CALIBRATION_SLOPE;
+                    current_source.cal_coeffs.offset = DEFAULT_CALIBRATION_OFFSET;
+                    current_source.update_interval = DEFAULT_UPDATE_INTERVAL;
                     expecting_value = 0;
                 }
                 break;

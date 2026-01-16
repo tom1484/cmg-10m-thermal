@@ -221,7 +221,7 @@ static int collect_channels(ThermalSource *sources, int source_count, ThermoData
             opened[addr] = 1;
             
             /* Apply update interval if it differs from default */
-            if (sources[i].update_interval > 0 && sources[i].update_interval != DAFAULT_UPDATE_INTERVAL) {
+            if (sources[i].update_interval > 0 && sources[i].update_interval != DEFAULT_UPDATE_INTERVAL) {
                 DEBUG_PRINT("Setting update interval for address %d to %d", addr, sources[i].update_interval);
                 if (thermo_set_update_interval(addr, (uint8_t)sources[i].update_interval) != THERMO_SUCCESS) {
                     fprintf(stderr, "Warning: Failed to set update interval for address %d\n", addr);
@@ -232,8 +232,8 @@ static int collect_channels(ThermalSource *sources, int source_count, ThermoData
     
     /* Configure calibration coefficients for each channel */
     for (int i = 0; i < source_count; i++) {
-        if (sources[i].cal_coeffs.slope != DAFAULT_CALIBRATION_SLOPE || 
-            sources[i].cal_coeffs.offset != DAFAULT_CALIBRATION_OFFSET) {
+        if (sources[i].cal_coeffs.slope != DEFAULT_CALIBRATION_SLOPE || 
+            sources[i].cal_coeffs.offset != DEFAULT_CALIBRATION_OFFSET) {
             DEBUG_PRINT("Setting calibration coeffs for address %d, channel %d: slope=%.6f, offset=%.6f",
                         sources[i].address, sources[i].channel,
                         sources[i].cal_coeffs.slope, sources[i].cal_coeffs.offset);
@@ -434,6 +434,9 @@ static void output_channels_table(ThermoData *data_array, int count, ThermalSour
             data_format_output(&static_data_array[i], 4, static_data_key_len, static_value_len, static_unit_len);
             data_format_output(&dynamic_data_array[i], 4, dynamic_data_key_len, dynamic_value_len, dynamic_unit_len);
         }
+        
+        free(static_data_array);
+        free(dynamic_data_array);
     }
 }
 
@@ -465,7 +468,7 @@ static int stream_channels(ThermalSource *sources, int source_count,
             opened[addr] = 1;
             
             /* Apply update interval if it differs from default */
-            if (sources[i].update_interval > 0 && sources[i].update_interval != DAFAULT_UPDATE_INTERVAL) {
+            if (sources[i].update_interval > 0 && sources[i].update_interval != DEFAULT_UPDATE_INTERVAL) {
                 if (thermo_set_update_interval(addr, (uint8_t)sources[i].update_interval) != THERMO_SUCCESS) {
                     fprintf(stderr, "Warning: Failed to set update interval for address %d\n", addr);
                 }
@@ -475,8 +478,8 @@ static int stream_channels(ThermalSource *sources, int source_count,
     
     /* Configure calibration coefficients for each channel */
     for (int i = 0; i < source_count; i++) {
-        if (sources[i].cal_coeffs.slope != DAFAULT_CALIBRATION_SLOPE || 
-            sources[i].cal_coeffs.offset != DAFAULT_CALIBRATION_OFFSET) {
+        if (sources[i].cal_coeffs.slope != DEFAULT_CALIBRATION_SLOPE || 
+            sources[i].cal_coeffs.offset != DEFAULT_CALIBRATION_OFFSET) {
             if (thermo_set_calibration_coeffs(sources[i].address, sources[i].channel, 
                                              sources[i].cal_coeffs.slope, 
                                              sources[i].cal_coeffs.offset) != THERMO_SUCCESS) {
@@ -698,9 +701,9 @@ int cmd_get(int argc, char **argv) {
         single_source.channel = channel;
         strncpy(single_source.tc_type, tc_type, sizeof(single_source.tc_type) - 1);
         /* Initialize with default calibration and update interval */
-        single_source.cal_coeffs.slope = DAFAULT_CALIBRATION_SLOPE;
-        single_source.cal_coeffs.offset = DAFAULT_CALIBRATION_OFFSET;
-        single_source.update_interval = DAFAULT_UPDATE_INTERVAL;
+        single_source.cal_coeffs.slope = DEFAULT_CALIBRATION_SLOPE;
+        single_source.cal_coeffs.offset = DEFAULT_CALIBRATION_OFFSET;
+        single_source.update_interval = DEFAULT_UPDATE_INTERVAL;
         
         sources = &single_source;
         source_count = 1;

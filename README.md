@@ -114,21 +114,21 @@ thermo-cli get -C sensors.yaml -T -A -J --json
 Example config file (`sensors.yaml`):
 ```yaml
 sources:
-  - key: MOTOR_TEMP
+  - key: BATTERY_TEMP
     address: 0
     channel: 0
     tc_type: K
-    cal_slope: 1.0      # Optional: calibration slope (default: 1.0)
-    cal_offset: 0.0     # Optional: calibration offset (default: 0.0)
-    update_interval: 1  # Optional: update interval in seconds (default: 1)
-  - key: BATTERY_TEMP
+    cal_slope: 1.0        # Optional: calibration slope (default: 0.999560)
+    cal_offset: 0.0       # Optional: calibration offset (default: -38.955465)
+    update_interval: 1    # Optional: update interval in seconds (default: 1)
+  - key: MOTOR_TEMP
     address: 0
     channel: 1
     tc_type: K
   - key: AMBIENT_TEMP
-    address: 1
-    channel: 0
-    tc_type: T
+    address: 0
+    channel: 2
+    tc_type: K
 ```
 
 **Note:** Calibration coefficients and update interval specified in config files are applied once when the board is opened, providing persistent settings during the reading session.
@@ -137,23 +137,23 @@ Example multi-channel JSON output:
 ```json
 [
   {
-    "KEY": "MOTOR_TEMP",
-    "ADDRESS": 0,
-    "CHANNEL": 0,
-    "TEMPERATURE": 45.234567,
-    "ADC": 1.234567
-  },
-  {
     "KEY": "BATTERY_TEMP",
     "ADDRESS": 0,
-    "CHANNEL": 1,
+    "CHANNEL": 0,
     "TEMPERATURE": 32.123456,
     "ADC": 0.987654
   },
   {
+    "KEY": "MOTOR_TEMP",
+    "ADDRESS": 0,
+    "CHANNEL": 1,
+    "TEMPERATURE": 45.234567,
+    "ADC": 1.234567
+  },
+  {
     "KEY": "AMBIENT_TEMP",
-    "ADDRESS": 1,
-    "CHANNEL": 0,
+    "ADDRESS": 0,
+    "CHANNEL": 2,
     "TEMPERATURE": 25.678901,
     "ADC": 0.765432
   }
@@ -162,37 +162,43 @@ Example multi-channel JSON output:
 
 Example multi-channel table output:
 ```
-Reading from 3 sources...
-========================================
-MOTOR_TEMP (Address: 0, Channel: 0):
-    Temperature:  45.234567 °C
-    ADC:          1.234567 V
-BATTERY_TEMP (Address: 0, Channel: 1):
+----------------------------------------
+BATTERY_TEMP (Address: 0, Channel: 0):
     Temperature:  32.123456 °C
     ADC:          0.987654 V
-AMBIENT_TEMP (Address: 1, Channel: 0):
+----------------------------------------
+MOTOR_TEMP (Address: 0, Channel: 1):
+    Temperature:  45.234567 °C
+    ADC:          1.234567 V
+----------------------------------------
+AMBIENT_TEMP (Address: 0, Channel: 2):
     Temperature:  25.678901 °C
     ADC:          0.765432 V
-========================================
+----------------------------------------
 ```
 
 Example multi-channel stream output:
 ```
-Streaming 3 sources at 1 Hz (Ctrl+C to stop)
+----------------------------------------
+BATTERY_TEMP (Address: 0, Channel: 0):
+    Serial:       XXXXXXXX
+    ...
 ========================================
-MOTOR_TEMP (Address: 0, Channel: 0):
-    Temperature:  45.234567 °C
-    ADC:          1.234567 V
-BATTERY_TEMP (Address: 0, Channel: 1):
+Streaming 3 sources at 1 Hz
+========================================
+BATTERY_TEMP (Address: 0, Channel: 0):
     Temperature:  32.123456 °C
     ADC:          0.987654 V
-AMBIENT_TEMP (Address: 1, Channel: 0):
+MOTOR_TEMP (Address: 0, Channel: 1):
+    Temperature:  45.234567 °C
+    ADC:          1.234567 V
+AMBIENT_TEMP (Address: 0, Channel: 2):
     Temperature:  25.678901 °C
     ADC:          0.765432 V
 ----------------------------------------
-MOTOR_TEMP (Address: 0, Channel: 0):
-    Temperature:  45.456789 °C
-    ADC:          1.245678 V
+BATTERY_TEMP (Address: 0, Channel: 0):
+    Temperature:  32.345678 °C
+    ADC:          0.998765 V
 ...
 ```
 
@@ -243,12 +249,12 @@ thermo-cli fuse --config my_config.yaml -- --actuator --stream 5
 #### Custom timestamp format:
 ```bash
 # Default ISO 8601 with microseconds
-thermo-cli fuse -a 0 -c 0 -- --power
-# Output: {"...", "TIMESTAMP": "2026-01-15T14:30:45.123456", "THERMOCOUPLE": {"TEMP": 25.5}}
+thermo-cli fuse -a 0 -c 0 -k MY_TEMP -- --power
+# Output: {"...", "TIMESTAMP": "2026-01-15T14:30:45.123456", "THERMOCOUPLE": {"MY_TEMP": {"TEMP": 25.5, "ADC": 0.001234, "CJC": 23.5}}}
 
 # Custom format (time only)
-thermo-cli fuse -a 0 -c 0 -T '%H:%M:%S.%f' -- --power
-# Output: {"...", "TIMESTAMP": "14:30:45.123456", "THERMOCOUPLE": {"TEMP": 25.5}}
+thermo-cli fuse -a 0 -c 0 -k MY_TEMP -T '%H:%M:%S.%f' -- --power
+# Output: {"...", "TIMESTAMP": "14:30:45.123456", "THERMOCOUPLE": {"MY_TEMP": {"TEMP": 25.5, "ADC": 0.001234, "CJC": 23.5}}}
 ```
 
 ### Configuration Files
@@ -265,10 +271,23 @@ sources:
   address: 0
   channel: 0
   tc_type: K
+  cal_slope: 1.0
+  cal_offset: 0.0
+  update_interval: 1
 - key: MOTOR_TEMP
   address: 0
   channel: 1
   tc_type: K
+  cal_slope: 1.0
+  cal_offset: 0.0
+  update_interval: 1
+- key: AMBIENT_TEMP
+  address: 0
+  channel: 2
+  tc_type: K
+  cal_slope: 1.0
+  cal_offset: 0.0
+  update_interval: 1
 ```
 
 Example JSON config:
@@ -382,7 +401,8 @@ Fuse thermal data into cmg-cli JSON output.
 **Note:** 
 - Use `--` to separate thermo-cli options from cmg-cli arguments.
 - Data fusion only works with JSON output. The `--json` flag is automatically added if not specified.
-- Thermal data is injected as a `THERMOCOUPLE` object with a `TIMESTAMP` field.
+- Thermal data is injected as a `THERMOCOUPLE` object containing sub-objects for each source key, with `TEMP`, `ADC`, and `CJC` values.
+- A `TIMESTAMP` field is added at the root level of the output.
 
 #### `init-config`
 Generate an example configuration file.
@@ -394,26 +414,30 @@ Generate an example configuration file.
 
 ### Project Structure
 ```
-cmg-10m-thermal-c/
+cmg-10m-thermal/
 ├── src/                   # Source files
 │   ├── main.c             # Entry point & argp parsing
 │   ├── hardware.c         # MCC 134 hardware abstraction
-│   ├── config.c           # YAML/JSON config parsing
-│   ├── bridge.c           # Data fusion bridge
+│   ├── common.c           # YAML/JSON config parsing & shared structures
+│   ├── bridge.c           # Data fusion bridge & fuse command
+│   ├── board_manager.c    # Board lifecycle management
+│   ├── json_utils.c       # JSON output utilities
+│   ├── signals.c          # Signal handling for graceful shutdown
 │   ├── utils.c            # Utilities & formatting
 │   └── commands/          # Command implementations
 │       ├── list.c         # List command
 │       ├── get.c          # Get command
 │       ├── set.c          # Set command
-│       ├── init_config.c  # Init-config command
-│       └── fuse.c         # Fuse command (in bridge.c)
+│       └── init_config.c  # Init-config command
 ├── include/               # Header files
 │   ├── hardware.h         # Hardware abstraction API
-│   ├── config.h           # Configuration API
+│   ├── common.h           # Configuration & shared structures API
 │   ├── bridge.h           # Data fusion bridge API
+│   ├── board_manager.h    # Board manager API
+│   ├── json_utils.h       # JSON utilities API
+│   ├── signals.h          # Signal handling API
 │   ├── utils.h            # Utility functions API
 │   └── commands/          # Command headers
-│       ├── common.h       # Shared command structures
 │       ├── list.h         # List command API
 │       ├── get.h          # Get command API
 │       ├── set.h          # Set command API

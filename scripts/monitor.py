@@ -3,6 +3,7 @@ from typing import Generator, Optional
 import typer
 
 import subprocess
+import time
 import json
 import select
 import atexit
@@ -40,10 +41,30 @@ KEYS_TO_CHECK_STEADY = [
 ]
 
 
-class Parser:
-    def __init__(self, log_path: Optional[str] = None):
-        self.log_file = open(log_path, "w") if log_path else None
+class Logger:
+    def __init__(self, log_path: str, log_append: bool = False):
+        self.log_file = open(log_path, "a" if log_append else "w")
+        self.log_append = log_append
+    
+    def log_columns(self, columns: dict):
+        if not self.log_append:
+            self.log_file.write(",".join(columns.keys()) + "\n")
+    
+    def log_row(self, row: dict):
+        self.log_file.write(",".join(str(row[col]) for col in row.keys()) + "\n")
+        self.log_file.flush()
+
+        print(f"Timestamp: {row['TIME']}")
+        for key in row.keys():
+            if key != "TIME":
+                print(f"  {key}: {row[key]}")
+        print()
+
+
+class Reader:
+    def __init__(self):
         self.columns = None
+        self.lines = 0
 
     def timestamp_to_seconds(self, ts: str) -> float:
         # Format: YEAR-MONTH-DAYTHOUR:MINUTE:SECOND.MICROSECOND
@@ -58,7 +79,9 @@ class Parser:
         )
         return total_seconds
 
-    def parse_json(self, data: dict) -> dict:
+    def parse(self, line: str) -> dict:
+        data = json.loads(line)
+
         row = {}
         row["TIME"] = self.timestamp_to_seconds(data["TIMESTAMP"])
 
@@ -72,48 +95,8 @@ class Parser:
                 row[f"THERMO_{pos}_{key}"] = value
 
         return row
-
-    def parse(self, line: str, log: bool = False) -> dict:
-        data = json.loads(line)
-        row = self.parse_json(data)
-
-        if self.log_file and log:
-            if self.columns is None:
-                self.columns = list(row.keys())
-                self.log_file.write(",".join(self.columns) + "\n")
-
-            self.log_file.write(",".join(str(row[col]) for col in self.columns) + "\n")
-
-        return row
-
-
-class DeviceManager:
-    def __init__(
-        self,
-        parser: Parser,
-        threshold: float,
-        time_limit: int,
-        steady_window: Optional[int] = None,
-        steady_threshold: Optional[float] = None,
-        check_steady_every: Optional[int] = None,
-    ):
-        self.terminated = False
-        atexit.register(self.terminate)
-
-        self.parser = parser
-
-        self.threshold = threshold
-
-        self.time_limit = time_limit
-        self.start_time = None
-
-        self.steady_window = steady_window
-        self.steady_threshold = steady_threshold
-        self.check_steady_every = check_steady_every
-        self.steady_history = {key: deque() for key in KEYS_TO_CHECK_STEADY}
-        self.last_steady_check = None
-
-    def read(self) -> Generator[dict, None, None]:
+        
+    def read(self) -> Generator[tuple[int, dict], None, None]:
         proc = subprocess.Popen(
             READ_COMMAND, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
         )
@@ -125,35 +108,30 @@ class DeviceManager:
             raise RuntimeError("Failed to start thermo-cli: \n" + "\n".join(err_msgs))
 
         for line in proc.stdout:
-            row = self.parser.parse(line, log=True)
+            row = self.parse(line)
+            yield self.lines, row
+            self.lines += 1
 
-            pass_threshold = self.check_threshold(
-                row, self.threshold, KEYS_TO_CHECK_THRESHOLD
-            )
-            if not pass_threshold:
-                print(
-                    f"Temperature threshold of {self.threshold}°C exceeded.\n"
-                    + "Stopping the test."
-                )
-                break
 
-            pass_time_limit = self.check_time_limit(row["TIME"])
-            if not pass_time_limit:
-                print(
-                    f"Time limit of {self.time_limit} seconds reached.\n"
-                    + "Stopping the test."
-                )
-                break
+class Device:
+    def __init__(
+        self,
+        threshold: float,
+        steady_window: Optional[int] = None,
+        steady_threshold: Optional[float] = None,
+        steady_check_every: Optional[int] = None,
+    ):
+        self.terminated = False
+        atexit.register(self.terminate)
 
-            is_steady = self.check_steady(row)
-            if is_steady:
-                print(
-                    f"Device readings have been steady for the last {self.steady_window} seconds.\n"
-                    + "Stopping the test."
-                )
-                break
-            
-            yield row
+        self.threshold = threshold
+
+        self.steady_window = steady_window
+        self.steady_threshold = steady_threshold
+        self.steady_check_every = steady_check_every
+
+        self.steady_history = {key: deque() for key in KEYS_TO_CHECK_STEADY}
+        self.last_steady_check = {key: None for key in KEYS_TO_CHECK_STEADY}
 
     def wheel_on(self, speed: float, gimbal: float = 45):
         print(
@@ -162,29 +140,23 @@ class DeviceManager:
         command = WHEEL_ON_COMMAND + [f"{speed},{gimbal}"]
         subprocess.run(command, check=True)
 
-    def check_threshold(self, row: dict, threshold: float, keys: list[str]) -> bool:
-        for key in keys:
-            if row.get(key, 0) >= threshold:
+    def under_threshold(self, row: dict) -> bool:
+        for key in KEYS_TO_CHECK_THRESHOLD:
+            if row.get(key, 0) >= self.threshold:
                 return False
         return True
-
-    def check_time_limit(self, current_time: float) -> bool:
-        if self.start_time is None:
-            self.start_time = current_time
-            return True
-        elapsed_time = current_time - self.start_time
-        return elapsed_time <= self.time_limit
 
     def check_steady(self, row: dict) -> bool:
         if (
             self.steady_window is None
             or self.steady_threshold is None
-            or self.check_steady_every is None
+            or self.steady_check_every is None
         ):
-            return True
+            return False
         
-        steady = {key: False for key in KEYS_TO_CHECK_STEADY}
+        # Skip checking steady state during defer period
         time = row["TIME"]
+        steady = {key: False for key in KEYS_TO_CHECK_STEADY}
 
         for key in KEYS_TO_CHECK_STEADY:
             history = self.steady_history[key]
@@ -195,17 +167,18 @@ class DeviceManager:
             
             last_entry = history[-1]
             if (
-                (self.last_steady_check is not None and time - self.last_steady_check < self.check_steady_every) or
-                last_entry[0] - history[0][0] < self.check_steady_every
+                (self.last_steady_check[key] is not None and time - self.last_steady_check[key] < self.steady_check_every) or
+                last_entry[0] - history[0][0] < self.steady_check_every
             ):
                 continue
             
             data = [t for _, t in history]
             std = np.std(data)
+            print(f"Steady check for {key}: std = {std:.4f} °C over last {last_entry[0] - history[0][0]:.2f} seconds")
             if std < self.steady_threshold:
                 steady[key] = True
 
-            self.last_steady_check = time
+            self.last_steady_check[key] = time
             while last_entry[0] - history[0][0] >= self.steady_window:
                 history.popleft()
 
@@ -230,6 +203,9 @@ class DeviceManager:
 
 def main(
     output: str = typer.Argument(..., help="Output CSV file path"),
+    append: bool = typer.Option(
+        False, help="Append to the output file if it exists"
+    ),
     speed: Optional[float] = typer.Option(
         None, help="Wheel speed to turn on the device (Hz)"
     ),
@@ -242,39 +218,96 @@ def main(
     time_limit: int = typer.Option(
         3600, help="Time limit for the steady test in seconds"
     ),
+    defer_start: Optional[int] = typer.Option(
+        None, help="Defer motor activation and steady state checking for this many seconds after start (included in time limit)"
+    ),
     steady_window: Optional[int] = typer.Option(
         None, help="Time window to check for steadiness in seconds"
     ),
     steady_threshold: Optional[float] = typer.Option(
         None, help="Maximum allowed variation in temperature for steadiness (°C)"
     ),
-    check_steady_every: Optional[int] = typer.Option(
+    steady_check_every: Optional[int] = typer.Option(
         None, help="Interval to check for steadiness in seconds"
     ),
 ):
-    parser = Parser(output)
-    manager = DeviceManager(
-        parser=parser,
+    reader = Reader()
+    logger = Logger(log_path=output, log_append=append)
+
+    device = Device(
         threshold=threshold,
-        time_limit=time_limit,
         steady_window=steady_window,
         steady_threshold=steady_threshold,
-        check_steady_every=check_steady_every,
+        steady_check_every=steady_check_every,
     )
 
-    try:
-        if speed is not None or gimbal is not None:
-            assert (
-                speed is not None and gimbal is not None
-            ), "Both speed and gimbal must be provided."
-            manager.wheel_on(speed=speed, gimbal=gimbal)
+    print("Starting monitoring...")
+    if threshold is not None:
+        print(f"  Temperature threshold set to {threshold} °C")
+    if time_limit is not None:
+        print(f"  Time limit set to {time_limit / 3600:.2f} hours")
+    if defer_start is not None:
+        print(f"  Deferring motor activation and steady state checking for {defer_start / 3600:.2f} hours")
+    if speed is not None and gimbal is not None:
+        print(f"  Wheel speed set to {speed} Hz with gimbal angle {gimbal} degrees")
+    if steady_window is not None and steady_threshold is not None:
+        print(
+            f"  Steady state checking enabled:"
+            + f"    window = {steady_window} seconds, "
+            + f"    threshold = {steady_threshold} °C, "
+            + f"    check every {steady_check_every} seconds"
+        )
+    print()
 
-        reader = manager.read()
-        for row in reader:
-            print(json.dumps(row, indent=2))
+    try:
+        start_time = time.time()
+        motor_activated = False
+
+        for i, row in reader.read():
+            if i == 0:
+                logger.log_columns(row)
+            logger.log_row(row)
+            
+            if not device.under_threshold(row):
+                print(
+                    f"Threshold of {threshold} °C exceeded.\n"
+                    + "Stopping the test."
+                )
+                break
+                
+            current_time = time.time()
+            elapsed_time = current_time - start_time
+            if elapsed_time >= time_limit:
+                print(
+                    f"Time limit of {time_limit} seconds reached.\n"
+                    + "Stopping the test."
+                )
+                break
+            
+            if defer_start is not None and elapsed_time < defer_start:
+                continue
+            
+            if not motor_activated:
+                if speed is not None or gimbal is not None:
+                    assert (
+                        speed is not None and gimbal is not None
+                    ), "Both speed and gimbal must be provided."
+                    print("Activating motor...\n")
+                    device.wheel_on(speed=speed, gimbal=gimbal)
+                motor_activated = True
+
+            if device.check_steady(row):
+                print(
+                    f"Steady state achieved within {steady_window} seconds "
+                    + f"with variation less than {steady_threshold} °C.\n"
+                    + "Stopping the test."
+                )
+                break
 
     except Exception as e:
         print(e)
+    
+    device.terminate()
 
 
 if __name__ == "__main__":

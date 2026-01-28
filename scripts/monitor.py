@@ -2,14 +2,17 @@ from typing import Generator, Optional
 
 import typer
 
+import os
 import subprocess
 import time
 import json
 import select
 import atexit
+from pathlib import Path
 
 from collections import deque
 import numpy as np
+from scipy.ndimage import gaussian_filter1d
 
 
 READ_COMMAND = [
@@ -42,9 +45,22 @@ KEYS_TO_CHECK_STEADY = [
 
 
 class Logger:
-    def __init__(self, log_path: str, log_append: bool = False):
+    def __init__(self, name: str, log_append: bool = False):
+        output_dir = Path("output") / name
+        if not output_dir.exists():
+            output_dir.mkdir(parents=True, exist_ok=True)
+        
+        log_path = output_dir / "data.csv"
+        meta_path = output_dir / "meta.toml"
+
         self.log_file = open(log_path, "a" if log_append else "w")
+        self.meta_file = open(meta_path, "w")
         self.log_append = log_append
+    
+    def write_meta(self, meta: dict):
+        for key, value in meta.items():
+            self.meta_file.write(f"{key} = {value}\n")
+        self.meta_file.flush()
     
     def log_columns(self, columns: dict):
         if not self.log_append:
@@ -118,6 +134,7 @@ class Device:
         self,
         threshold: float,
         steady_window: Optional[int] = None,
+        steady_sigma: Optional[float] = None,
         steady_threshold: Optional[float] = None,
         steady_check_every: Optional[int] = None,
     ):
@@ -127,6 +144,7 @@ class Device:
         self.threshold = threshold
 
         self.steady_window = steady_window
+        self.steady_sigma = steady_sigma
         self.steady_threshold = steady_threshold
         self.steady_check_every = steady_check_every
 
@@ -173,7 +191,8 @@ class Device:
                 continue
             
             data = [t for _, t in history]
-            std = np.std(data)
+            filtered = gaussian_filter1d(data, sigma=self.steady_sigma)
+            std = np.std(filtered)
             print(f"Steady check for {key}: std = {std:.4f} °C over last {last_entry[0] - history[0][0]:.2f} seconds")
             if std < self.steady_threshold:
                 steady[key] = True
@@ -202,7 +221,7 @@ class Device:
 
 
 def main(
-    output: str = typer.Argument(..., help="Output CSV file path"),
+    name: str = typer.Argument(..., help="Experiment name"),
     append: bool = typer.Option(
         False, help="Append to the output file if it exists"
     ),
@@ -224,6 +243,9 @@ def main(
     steady_window: Optional[int] = typer.Option(
         None, help="Time window to check for steadiness in seconds"
     ),
+    steady_sigma: Optional[float] = typer.Option(
+        None, help="Sigma for Gaussian smoothing when checking for steadiness"
+    ),
     steady_threshold: Optional[float] = typer.Option(
         None, help="Maximum allowed variation in temperature for steadiness (°C)"
     ),
@@ -231,12 +253,26 @@ def main(
         None, help="Interval to check for steadiness in seconds"
     ),
 ):
-    reader = Reader()
-    logger = Logger(log_path=output, log_append=append)
+    logger = Logger(name, log_append=append)
+    logger.write_meta(
+        {
+            "speed": speed if speed is not None else "null",
+            "gimbal": gimbal if gimbal is not None else "null",
+            "threshold": threshold,
+            "time_limit": time_limit,
+            "defer_start": defer_start if defer_start is not None else "null",
+            "steady_window": steady_window if steady_window is not None else "null",
+            "steady_sigma": steady_sigma if steady_sigma is not None else "null",
+            "steady_threshold": steady_threshold if steady_threshold is not None else "null",
+            "steady_check_every": steady_check_every if steady_check_every is not None else "null",
+        }
+    )
 
+    reader = Reader()
     device = Device(
         threshold=threshold,
         steady_window=steady_window,
+        steady_sigma=steady_sigma,
         steady_threshold=steady_threshold,
         steady_check_every=steady_check_every,
     )
@@ -252,9 +288,10 @@ def main(
         print(f"  Wheel speed set to {speed} Hz with gimbal angle {gimbal} degrees")
     if steady_window is not None and steady_threshold is not None:
         print(
-            f"  Steady state checking enabled:"
-            + f"    window = {steady_window} seconds, "
-            + f"    threshold = {steady_threshold} °C, "
+            f"  Steady state checking enabled:\n"
+            + f"    window = {steady_window} seconds\n"
+            + f"    sigma = {steady_sigma}\n"
+            + f"    threshold = {steady_threshold} °C\n"
             + f"    check every {steady_check_every} seconds"
         )
     print()

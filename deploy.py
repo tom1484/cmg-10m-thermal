@@ -19,20 +19,26 @@ import subprocess
 import sys
 from pathlib import Path
 
+# ANSI color codes
+COLOR_RESET = "\033[0m"
+COLOR_RED = "\033[31m"
+COLOR_GREEN = "\033[32m"
+COLOR_YELLOW = "\033[33m"
+COLOR_BLUE = "\033[34m"
+COLOR_CYAN = "\033[36m"
+COLOR_BOLD = "\033[1m"
+
 # Project root (parent of scripts/)
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent
 LOCAL_HOME = Path.home()
 
 # Files/directories to sync
 SYNC_ITEMS = [
-    "src/",
-    "include/",
-    "vendor/",
-    "Makefile",
+    "thermo-cli/",
     "install_deps.sh",
     "requirements.txt",
+    "monitor.py",
     "README.md",
-    "thermo_config.yaml",
 ]
 
 # Files/directories to exclude from sync
@@ -43,10 +49,6 @@ EXCLUDE_PATTERNS = [
     ".venv",
     "*.egg-info",
     "*.o",
-    "thermo-cli",
-    "thermo/",          # Exclude Python source
-    "pyproject.toml",   # Exclude Python package config
-    "requirements.txt", # Exclude Python requirements
 ]
 
 
@@ -66,7 +68,7 @@ def to_remote_path(path: str) -> str:
 
 def run_cmd(cmd: list[str], check: bool = True, capture: bool = False) -> subprocess.CompletedProcess:
     """Run a command and optionally check for errors."""
-    print(f"[CMD] {' '.join(cmd)}")
+    print(f"{COLOR_CYAN}[CMD]{COLOR_RESET} {' '.join(cmd)}")
     return subprocess.run(
         cmd,
         check=check,
@@ -82,7 +84,7 @@ def run_ssh(host: str, command: str, check: bool = True) -> subprocess.Completed
 
 def sync_files(host: str, remote_path: str) -> None:
     """Sync project files to the remote host using rsync."""
-    print("\n=== Syncing files to remote ===")
+    print(f"\n{COLOR_BOLD}{COLOR_BLUE}=== Syncing files to remote ==={COLOR_RESET}")
 
     # Build rsync command
     rsync_cmd = [
@@ -102,7 +104,7 @@ def sync_files(host: str, remote_path: str) -> None:
         if src.exists():
             rsync_cmd.append(str(src))
         else:
-            print(f"[WARN] {item} not found, skipping")
+            print(f"{COLOR_YELLOW}[WARN]{COLOR_RESET} {item} not found, skipping")
 
     # Add destination
     rsync_cmd.append(f"{host}:{remote_path}/")
@@ -112,50 +114,50 @@ def sync_files(host: str, remote_path: str) -> None:
 
 def install_dependencies(host: str, password: str, remote_path: str) -> None:
     """Install build dependencies on the remote host using install_deps.sh."""
-    print("\n=== Installing dependencies ===")
+    print(f"\n{COLOR_BOLD}{COLOR_BLUE}=== Installing dependencies ==={COLOR_RESET}")
     
     # Run the install_deps.sh script
-    print("[INFO] Running install_deps.sh on remote host...")
+    print(f"{COLOR_BLUE}[INFO]{COLOR_RESET} Running install_deps.sh on remote host...")
     run_ssh(host, f"cd {remote_path} && echo '{password}' | sudo -S bash install_deps.sh")
 
 
 def build_on_remote(host: str, remote_path: str, debug: bool = False) -> None:
     """Build the C project on the remote host."""
     build_mode = "DEBUG" if debug else "RELEASE"
-    print(f"\n=== Building thermo-cli ({build_mode} mode) ===")
+    print(f"\n{COLOR_BOLD}{COLOR_BLUE}=== Building thermo-cli ({build_mode} mode) ==={COLOR_RESET}")
     
     # Clean previous build
-    print("[INFO] Cleaning previous build...")
-    run_ssh(host, f"cd {remote_path} && make clean", check=False)
+    print(f"{COLOR_BLUE}[INFO]{COLOR_RESET} Cleaning previous build...")
+    run_ssh(host, f"cd {remote_path}/thermo-cli && make clean", check=False)
     
     # Build project
-    build_cmd = f"cd {remote_path} && make"
+    build_cmd = f"cd {remote_path}/thermo-cli && make"
     if debug:
         build_cmd += " DEBUG=1"
-    print(f"[INFO] Building project with: {build_cmd}")
+    print(f"{COLOR_BLUE}[INFO]{COLOR_RESET} Building project with: {build_cmd}")
     run_ssh(host, build_cmd)
 
 
 def install_on_remote(host: str, password: str, remote_path: str) -> None:
     """Install the thermo-cli binary on the remote host."""
-    print("\n=== Installing thermo-cli ===")
+    print(f"\n{COLOR_BOLD}{COLOR_BLUE}=== Installing thermo-cli ==={COLOR_RESET}")
     
     # Install to /usr/local/bin
-    run_ssh(host, f"cd {remote_path} && echo '{password}' | sudo -S make install")
+    run_ssh(host, f"cd {remote_path}/thermo-cli && echo '{password}' | sudo -S make install")
     
     # Verify installation
-    print("\n=== Verifying installation ===")
+    print(f"\n{COLOR_BOLD}{COLOR_BLUE}=== Verifying installation ==={COLOR_RESET}")
     result = run_ssh(host, "thermo-cli --version", check=False)
     
     if result.returncode == 0:
-        print("[SUCCESS] thermo-cli installed successfully!")
+        print(f"{COLOR_GREEN}[SUCCESS]{COLOR_RESET} thermo-cli installed successfully!")
     else:
-        print("[WARN] Installation verification failed")
+        print(f"{COLOR_YELLOW}[WARN]{COLOR_RESET} Installation verification failed")
 
 
 def setup_remote_directory(host: str, remote_path: str) -> None:
     """Create the remote directory if it doesn't exist."""
-    print(f"\n=== Setting up remote directory: {remote_path} ===")
+    print(f"\n{COLOR_BOLD}{COLOR_BLUE}=== Setting up remote directory: {remote_path} ==={COLOR_RESET}")
     run_ssh(host, f"mkdir -p {remote_path}")
 
 
@@ -184,8 +186,8 @@ Examples:
     )
     parser.add_argument(
         "--remote-path",
-        default="~/thermo-cli",
-        help="Build path on the remote host (default: ~/thermo-cli)",
+        default="~/cmg-10m-thermal",
+        help="Build path on the remote host (default: ~/cmg-10m-thermal)",
     )
     parser.add_argument(
         "--sync-only",
@@ -225,12 +227,12 @@ Examples:
 
     # Validate host format
     if "@" not in args.host:
-        print("[ERROR] Host must be in user@host format (e.g., pi@192.168.1.100)")
+        print(f"{COLOR_RED}[ERROR]{COLOR_RESET} Host must be in user@host format (e.g., pi@192.168.1.100)")
         sys.exit(1)
 
     # Validate password requirement
     if not args.sync_only and not args.password:
-        print("[ERROR] --password is required for building/installing")
+        print(f"{COLOR_RED}[ERROR]{COLOR_RESET} --password is required for building/installing")
         print("        (needed for sudo apt install and make install)")
         sys.exit(1)
 
@@ -246,7 +248,7 @@ Examples:
             sync_files(args.host, args.remote_path)
 
         if args.sync_only:
-            print("\n=== Sync complete (--sync-only) ===")
+            print(f"\n{COLOR_BOLD}{COLOR_GREEN}=== Sync complete (--sync-only) ==={COLOR_RESET}")
             return
 
         # Install dependencies
@@ -257,26 +259,26 @@ Examples:
         build_on_remote(args.host, args.remote_path, args.debug)
 
         if args.build_only:
-            print("\n=== Build complete (--build-only) ===")
+            print(f"\n{COLOR_BOLD}{COLOR_GREEN}=== Build complete (--build-only) ==={COLOR_RESET}")
             print(f"To install, run: ssh {args.host} 'cd {args.remote_path} && sudo make install'")
             return
 
         # Install binary
         install_on_remote(args.host, args.password, args.remote_path)
 
-        print("\n=== Deployment complete! ===")
+        print(f"\n{COLOR_BOLD}{COLOR_GREEN}=== Deployment complete! ==={COLOR_RESET}")
         print(f"Run: ssh {args.host} thermo-cli --help")
         print(f"Test: ssh {args.host} thermo-cli list")
 
     except subprocess.CalledProcessError as e:
-        print(f"\n[ERROR] Command failed with exit code {e.returncode}")
+        print(f"\n{COLOR_RED}[ERROR]{COLOR_RESET} Command failed with exit code {e.returncode}")
         if e.stdout:
             print(f"STDOUT: {e.stdout}")
         if e.stderr:
             print(f"STDERR: {e.stderr}")
         sys.exit(1)
     except KeyboardInterrupt:
-        print("\n[INTERRUPTED] Deployment cancelled")
+        print(f"\n{COLOR_YELLOW}[INTERRUPTED]{COLOR_RESET} Deployment cancelled")
         sys.exit(130)
 
 
